@@ -181,15 +181,14 @@ class OpenboxLogout():
         self.bgcolor = gtk.gdk.color_parse("black")
         blist = ""
         
-        # Check if we're using HAL, and init it as required.
         if self.parser.has_section("settings"):
             
-            if self.parser.has_option("settings","usehal"):
-                self.usehal = self.parser.getboolean("settings","usehal")
+            if self.parser.has_option("settings","usedbus"):
+                self.use_dbus = self.parser.getboolean("settings", "usedbus")
             else:
-                self.usehal = True
+                self.use_dbus = True
             
-        if self.usehal:    
+        if self.use_dbus:
             from dbushandler import DbusController
             self.dbus = DbusController()  
         
@@ -262,7 +261,7 @@ class OpenboxLogout():
                 self.logger.warning(_("Button %s is not a valid button name, removing") % button)
                 list.remove(button)
             else:
-                if self.usehal and button in ['restart', 'shutdown', 'suspend', 'hibernate', 'safesuspend']:
+                if self.use_dbus and button in ['restart', 'shutdown', 'suspend', 'hibernate', 'safesuspend']:
                     if not self.dbus.check_ability(button):
                         self.logger.warning(_("Can't %s, disabling button" % button))
                         list.remove(button)
@@ -360,15 +359,14 @@ class OpenboxLogout():
     def click_button(self, widget, data=None):
         if (data == 'logout'):
             self.__exec_cmd(self.cmd_logout)
-            
         elif (data == 'restart'):
-            if self.usehal:
+            if self.use_dbus:
                 self.dbus.restart()
             else:
                 self.__exec_cmd(self.cmd_restart)
                 
         elif (data == 'shutdown'):
-            if self.usehal:
+            if self.use_dbus:
                 self.dbus.shutdown()
             else:
                 self.__exec_cmd(self.cmd_shutdown)
@@ -376,7 +374,7 @@ class OpenboxLogout():
         elif (data == 'suspend'):
             self.window.hide()
             self.__lock_screen()
-            if self.usehal:
+            if self.use_dbus:
                 self.dbus.suspend()
             
             else:
@@ -385,7 +383,7 @@ class OpenboxLogout():
         elif (data == 'hibernate'):
             self.window.hide()
             self.__lock_screen()
-            if self.usehal:
+            if self.use_dbus:
                 self.dbus.hibernate()
             else:
                 self.__exec_cmd(self.cmd_hibernate) 
@@ -393,7 +391,7 @@ class OpenboxLogout():
         elif (data == 'safesuspend'):
             self.window.hide()
             
-            if self.usehal:
+            if self.use_dbus:
                 self.dbus.safesuspend()
             else:
                 self.__exec_cmd(self.cmd_safesuspend) 

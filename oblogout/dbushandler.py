@@ -1,9 +1,10 @@
 #!/usr/bin/env python
 
-# Crunchbang Openbox Logout
+# Crunchbang Openbox Logout With Login Daemon Support
 #   - GTK/Cairo based logout box styled for Crunchbang
 #
 #    Andrew Williams <andy@tensixtyone.com>
+#    Gyorgy Jerovetz <jerovetz@comlions.net>
 #
 #    This program is free software; you can redistribute it and/or modify
 #    it under the terms of the GNU General Public License as published by
@@ -26,149 +27,57 @@ import dbus
 
 class DbusController (object):
 
-    """ DbusController handles all DBus actions required by OBLogout and acts
-        as a middle layer between the application and Dbus"""
-
     @property
     def _sysbus (self):
-        """System DBus"""
         if not hasattr (DbusController, "__sysbus"):
             DbusController.__sysbus = dbus.SystemBus ()
         return DbusController.__sysbus
 
     @property
-    def _sessbus (self):
-        """Session DBus"""
-        if not hasattr (DbusController, "__sessbus"):
-            DbusController.__sessbus = dbus.SessionBus ()
-        return DbusController.__sessbus
-
-    @property
-    def _polkit (self):
-        """PolicyKit object"""
-        if not hasattr (DbusController, "__polkit"):
-            pk = self._sysbus.get_object ("org.freedesktop.PolicyKit", "/")
-            DbusController.__polkit = dbus.Interface(pk, 'org.freedesktop.PolicyKit')
-        return DbusController.__polkit
-
-    @property
-    def _halpm (self):
-        """HAL controller object""" 
-        if not hasattr (DbusController, "__halpm"):
-            hal = self._sysbus.get_object ("org.freedesktop.Hal", "/org/freedesktop/Hal/devices/computer")
-            DbusController.__halpm  = dbus.Interface(hal, "org.freedesktop.Hal.Device.SystemPowerManagement")
-        return DbusController.__halpm
-
-    @property
-    def _authagent (self):
-        """AuthenticationAgent object"""
-        if not hasattr (DbusController, "__authagent"):
-            autha = self._sessbus.get_object ("org.freedesktop.PolicyKit.AuthenticationAgent", "/", "org.gnome.PolicyKit.AuthorizationManager.SingleInstance")
-            DbusController.__authagent = dbus.Interface(autha,'org.freedesktop.PolicyKit.AuthenticationAgent')
-
-        return DbusController.__authagent
+    def _logind (self):
+        if not hasattr (DbusController, "__logind"):
+            login1 = self._sysbus.get_object ("org.freedesktop.login1", "/org/freedesktop/login1")
+            DbusController.__logind = dbus.Interface(login1, "org.freedesktop.login1.Manager")
+        return DbusController.__logind
 
     def __init__(self):
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    def __check_perms(self, id):   
-        """ Check if we have permissions for a action """
-
-        self.logger.debug('Checking permissions for %s' % id)
-
-        #try:
-        res = self._polkit.IsProcessAuthorized(id, os.getpid(), False)
-        #except:
-        #    return False
-
-        if res == "yes":
-            self.logger.debug("Authorised to use %s, res = %s" % (id, res))
-            return True
-        else:
-            self.logger.debug("Not authorised to use, requires %s" % res)
-            return False
-
-    def __auth_perms(self, id):   
-        """ Check if we have permissions for a action, if not, try to obtain them via PolicyKit """
-     
-        if self.__check_perms(id):
-            return True
-        else: 
-
-            self.logger.debug('Attempting to obtain %s' % id)
-            grant = self._authagent.ObtainAuthorization(id, 0, os.getpid(), timeout=300, dbus_interface = "org.freedesktop.PolicyKit.AuthenticationAgent")
-            self.logger.debug("Result: %s" % bool(grant))
-
-            return self.__check_perms(id)
-            #return bool(grant)
-
-    def __get_sessions(self):
-        """ Using DBus and ConsoleKit, get the number of sessions. This is used by PolicyKit to dictate the 
-            multiple sessions permissions for the various reboot/shutdown commands """
-
-        # Check the number of active sessions
-        manager_obj = dbus.SystemBus().get_object ('org.freedesktop.ConsoleKit', '/org/freedesktop/ConsoleKit/Manager')
-        manager = dbus.Interface (manager_obj, 'org.freedesktop.ConsoleKit.Manager')
-
-        cnt = 0
-        seats = manager.GetSeats ()
-        for sid in seats:
-            seat_obj = dbus.SystemBus().get_object ('org.freedesktop.ConsoleKit', sid)
-            seat = dbus.Interface (seat_obj, 'org.freedesktop.ConsoleKit.Seat')
-            cnt += len(seat.GetSessions())
-
-        return cnt
-
-
     def check_ability(self, action):
-        """Check if HAL can complete action type requests, for example, suspend, hiberate, and safesuspend"""
-
         if action == 'suspend':
-            return self._halpm.CanSuspend
+            return self._logind.CanSuspend() == 'yes'
         elif action == 'hibernate':
-            return self._halpm.CanHibernate
+            return self._logind.CanHibernate() == 'yes'
         elif action == 'safesuspend':
-             if not self._halpm.CanHibernate or not pm.CanSuspend:
+             if not self._logind.CanHibernate() == 'yes' or not pm.CanSuspend:
                 return False
 
         return True
 
     def restart(self):
-        """Restart the system via HAL, if we do not have permissions to do so obtain them via PolicyKit"""
-
-        if self.__get_sessions() > 1:
-            if not self.__auth_perms("org.freedesktop.hal.power-management.reboot-multiple-sessions"):
-                return False
-        else:
-            if not self.__auth_perms("org.freedesktop.hal.power-management.reboot"):
-                return False
+        if not self._logind.CanReboot():
+            return False
 
         self.logger.debug("Rebooting...")
-        return self._halpm.Reboot()
+        return self._logind.Reboot(False)
 
     def shutdown(self):
-        """Shutdown the system via HAL, if we do not have permissions to do so obtain them via PolicyKit"""
-
-        if self.__get_sessions() > 1:
-            if not self.__auth_perms("org.freedesktop.hal.power-management.shutdown-multiple-sessions"):
-                return False
+        if not self._logind.CanPowerOff():
+            return False
         else:
-            if not self.__auth_perms("org.freedesktop.hal.power-management.shutdown"):
-                return False            
-
-        return self._halpm.Shutdown()
+            return self._logind.PowerOff(False)
 
     def suspend(self):
-        if not self.__auth_perms("org.freedesktop.hal.power-management.suspend"):
+        if not self._logind.CanSuspend():
             return False            
         else:
-            return self._halpm.Suspend()
+            return self._logind.Suspend(False)
 
     def hibernate(self):
-        if not self.__auth_perms("org.freedesktop.hal.power-management.hibernate"):
+        if not self._logind.CanHibernate():
             return False            
         else:
-            return self._halpm.Hibernate()
+            return self._logind.Hibernate(False)
 
     def safesuspend(self):
         pass

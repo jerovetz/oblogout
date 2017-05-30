@@ -1,6 +1,7 @@
- Crunchbang Openbox Logout
+ Crunchbang Openbox Logout - With Login Daemon Support
    - GTK/Cairo based logout box styled for Crunchbang
 
+    Gyorgy Jerovetz <jerovetz@comlions.net>
     Andrew Williams <andy@tensixtyone.com>
 
     Originally based on code by:
@@ -43,7 +44,7 @@
  
  SETTINGS
 
- - UseHal = true/false dictate if oblogout should use HAL for it's shutdown/suspend
+ - usedbus = true/false dictate if oblogout should use Login1 for it's shutdown/suspend
    functions.
 
  LOOKS
