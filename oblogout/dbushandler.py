@@ -87,6 +87,3 @@ if __name__ == "__main__":
 
     t = DbusController()
     print t.restart()
-
-
-
