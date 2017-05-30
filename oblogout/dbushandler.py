@@ -22,7 +22,6 @@
 #
 
 import logging
-import os
 import dbus
 
 class DbusController (object):
